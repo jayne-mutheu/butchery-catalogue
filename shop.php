@@ -2,89 +2,123 @@
 session_start();
 require_once 'db.php';
 
-try {
-    $stmt =$pdo->query('SELECT * FROM products ORDER BY id DESC');
-    $products =$stmt->fetchAll();
-} catch (PDOException $e) {
-    $products = [];$error = "Error loading products: " . $e->getMessage();
+// Redirect user to the login page if they are not logged in
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit;
 }
 
-$cart_count = 0;
-if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
-    $cart_count = count($_SESSION['cart']);
+// Fetch all available products from the database
+try {
+    $stmt = $pdo->query('SELECT * FROM products ORDER BY id DESC');
+    $products = $stmt->fetchAll();
+} catch (PDOException $e) {
+    $products = [];
+    $error = "Failed to load products: " . $e->getMessage();
 }
+
+$cart_count = isset($_SESSION['cart']) ? count($_SESSION['cart']) : 0;
+$is_admin = !empty($_SESSION['is_admin']) || (isset($_SESSION['role']) && $_SESSION['role'] === 'admin');
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prime Cuts Butchery - Online Storefront</title>
+    <title>Storefront - Prime Cuts Butchery</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        * { box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background-color: #f4f6f9; color: #333; }
+        :root {
+            --primary-red: #e63946;
+            --secondary-red: #d90429;
+            --text-dark: #1a1a1a;
+            --text-muted: #777;
+            --bg-page: #fcfcfc;
+            --white: #ffffff;
+            --border-color: #eaeaea;
+            --success: #28a745;
+        }
 
-        .navbar { background-color: #8b0000; color: #fff; padding: 15px 40px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        .navbar h1 { margin: 0; font-size: 1.5rem; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg-page); color: var(--text-dark); line-height: 1.5; }
+
+        /* Navigation - Flat with Border */
+        .navbar { background-color: #000; color: var(--white); padding: 15px 5%; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 1000; border-bottom: 1px solid #333; }
+        .navbar h1 { font-size: 1.3rem; font-weight: 900; letter-spacing: 0.5px; display: flex; align-items: center; gap: 10px; }
         .navbar-links { display: flex; align-items: center; gap: 20px; }
-        .navbar-links a { color: #fff; text-decoration: none; font-weight: bold; font-size: 0.95rem; }
+        .navbar-links a { color: var(--white); text-decoration: none; font-weight: 600; font-size: 0.95rem; }
         
-        .cart-btn { background-color: #ffc107; color: #333 !important; padding: 8px 16px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-weight: bold; text-decoration: none; }
-        .cart-badge { background-color: #8b0000; color: #fff; border-radius: 50%; padding: 2px 7px; font-size: 0.8rem; }
+        .cart-btn { background-color: var(--white); color: #000 !important; padding: 8px 18px; border-radius: 25px; display: flex; align-items: center; gap: 8px; font-weight: bold; border: 1px solid var(--border-color); }
+        .cart-badge { background-color: var(--primary-red); color: var(--white); border-radius: 50%; padding: 2px 8px; font-size: 0.8rem; }
 
-        .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
-        .page-title h2 { margin: 0; color: #8b0000; }
-        .page-title p { margin: 5px 0 0 0; color: #666; font-size: 0.9rem; }
+        /* Internal Store Banner - Flat */
+        .store-banner { background: var(--white); border-bottom: 1px solid var(--border-color); padding: 30px 5%; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
+        .store-banner h2 { color: var(--primary-red); font-size: 1.8rem; font-weight: 900; }
+        .store-banner p { color: var(--text-muted); }
 
-        .btn-batch-add { background-color: #28a745; color: #fff; border: none; padding: 12px 24px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 1rem; box-shadow: 0 2px 5px rgba(0,0,0,0.15); }
-        .btn-batch-add:hover { background-color: #218838; }
-
-        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 25px; }
-        .product-card { background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 20px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid #eee; position: relative; }
+        .container { max-width: 1300px; margin: 0 auto 40px; padding: 0 5%; }
         
-        .select-checkbox-wrapper { position: absolute; top: 15px; right: 15px; display: flex; align-items: center; gap: 5px; background: #fff3cd; padding: 4px 8px; border-radius: 4px; border: 1px solid #ffeeba; }
-        .select-checkbox-wrapper label { font-size: 0.75rem; font-weight: bold; cursor: pointer; color: #856404; }
+        .alert { padding: 15px 20px; border-radius: 6px; margin-bottom: 30px; font-weight: 600; border: 1px solid transparent; }
+        .alert-success { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
+        .alert-danger { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
 
-        .product-title { font-size: 1.2rem; margin: 0 0 5px 0; color: #222; padding-right: 80px; }
-        .product-desc { font-size: 0.85rem; color: #666; margin-bottom: 12px; }
-        .product-price { font-size: 1.25rem; font-weight: bold; color: #8b0000; margin-bottom: 15px; }
+        /* Product Grid */
+        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; }
         
-        /* Form Controls */
-        .purchase-options { border-top: 1px solid #eee; padding-top: 15px; display: flex; flex-direction: column; gap: 10px; }
-        .mode-toggle { display: flex; gap: 10px; margin-bottom: 5px; }
-        .mode-toggle label { font-size: 0.8rem; font-weight: bold; color: #555; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+        /* Flat Product Cards */
+        .product-card { background: var(--white); border-radius: 16px; overflow: hidden; border: 1px solid var(--border-color); display: flex; flex-direction: column; transition: border-color 0.2s ease; }
+        .product-card:hover { border-color: #ccc; }
+        
+        .product-img-placeholder { height: 180px; background: #e2e2e2; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 3rem; border-bottom: 1px solid var(--border-color); }
+        
+        .product-details { padding: 20px; flex-grow: 1; display: flex; flex-direction: column; }
+        .product-category { font-size: 0.75rem; text-transform: uppercase; color: var(--primary-red); font-weight: 800; margin-bottom: 5px; letter-spacing: 1px; }
+        .product-name { font-size: 1.1rem; font-weight: 900; margin-bottom: 10px; color: var(--text-dark); text-transform: uppercase; }
+        .product-desc { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px; flex-grow: 1; }
+        .product-price { font-size: 1.3rem; font-weight: 900; color: var(--text-dark); margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 15px; }
 
-        .form-row { display: flex; gap: 10px; }
+        /* Direct Add to Cart Form - Flat */
+        .direct-cart-form { background: #fafafa; padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); margin-top: auto; }
+        .form-row { display: flex; gap: 10px; margin-bottom: 12px; }
         .form-group { flex: 1; display: flex; flex-direction: column; }
-        .form-group label { font-size: 0.75rem; font-weight: bold; margin-bottom: 4px; color: #555; }
-        .form-group input, .form-group select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; }
-
-        .calc-preview { font-size: 0.8rem; color: #28a745; font-weight: bold; min-height: 18px; margin-top: 2px; }
-
-        .alert { padding: 12px 15px; border-radius: 5px; margin-bottom: 20px; }
-        .alert-danger { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .form-group label { font-size: 0.75rem; font-weight: 700; margin-bottom: 4px; color: var(--text-muted); text-transform: uppercase; }
+        .form-control { padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.9rem; outline: none; background: #fff; }
+        .form-control:focus { border-color: var(--primary-red); }
+        
+        .btn-add-cart { width: 100%; background: #000; color: var(--white); border: none; padding: 12px; font-size: 0.9rem; font-weight: 800; border-radius: 25px; cursor: pointer; transition: background 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; text-transform: uppercase; }
+        .btn-add-cart:hover { background: #333; }
     </style>
 </head>
 <body>
 
 <nav class="navbar">
-    <h1>🥩 Prime Cuts Butchery</h1>
+    <h1><i class="fas fa-drumstick-bite"></i> PRIME CUTS</h1>
     <div class="navbar-links">
-        <a href="shop.php">Storefront</a>
-        <a href="cart.php" class="cart-btn">
-            🛒 Cart <span class="cart-badge"><?= $cart_count ?></span>
-        </a>
-        <?php if (isset($_SESSION['user_id'])): ?>
-            <a href="logout.php">Logout</a>
-        <?php else: ?>
-            <a href="login.php">Login</a>
+        <a href="index.php">Home</a>
+        <?php if ($is_admin): ?>
+            <a href="admin.php">Admin</a>
         <?php endif; ?>
+        
+        <a href="cart.php" class="cart-btn">
+            <i class="fas fa-shopping-bag"></i> 
+            <span class="cart-badge"><?= $cart_count ?></span>
+        </a>
+        <a href="logout.php">Logout</a>
     </div>
 </nav>
 
+<div class="store-banner">
+    <div>
+        <h2>AVAILABLE CUTS</h2>
+        <p>Browse our fresh cuts and select exactly how you want them prepared.</p>
+    </div>
+    <div style="font-size: 0.85rem; color: #777; font-weight: 600;">
+        ACCOUNT: <span style="color:#000; text-transform:uppercase;"><?= htmlspecialchars($_SESSION['username'] ?? 'Customer') ?></span>
+    </div>
+</div>
+
 <div class="container">
+    
     <?php if (isset($_SESSION['cart_message'])): ?>
         <div class="alert alert-success">
             <?= htmlspecialchars($_SESSION['cart_message']) ?>
@@ -99,131 +133,87 @@ if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
         </div>
     <?php endif; ?>
 
-    <form method="POST" action="add_to_cart.php">
-        <input type="hidden" name="batch_add" value="1">
-
-        <div class="page-header">
-            <div class="page-title">
-                <h2>Fresh Meat & Special Cuts</h2>
-                <p>Order by <strong>Weight (KG)</strong> or <strong>Amount (KES)</strong>. Check multiple items to add them all at once and pay once!</p>
-            </div>
-            <?php if (!empty($products)): ?>
-                <button type="submit" class="btn-batch-add">🛒 Add Selected Meat to Cart</button>
-            <?php endif; ?>
+    <?php if (empty($products)): ?>
+        <div style="text-align: center; padding: 50px; color: #777; border: 1px solid var(--border-color); border-radius: 16px; background: #fff;">
+            <h3>No products available at the moment.</h3>
+            <p>Our butchers are currently updating the stock.</p>
         </div>
-
-        <?php if (empty($products)): ?>
-            <div style="text-align: center; color: #777; padding: 40px 0;">
-                <h3>No meat items available right now.</h3>
-                <p>Please check back later or add items from the Admin Panel.</p>
-            </div>
-        <?php else: ?>
-            <div class="product-grid">
-                <?php foreach ($products as$p): ?>
-                    <?php $price = (float)($p['price'] ?? $p['price_per_kg'] ?? 0); ?>
-                    <div class="product-card">
+    <?php else: ?>
+        <div class="product-grid">
+            <?php foreach ($products as $p): 
+                $price = (float)($p['price'] ?? $p['price_per_kg'] ?? 0);
+                $category = $p['category'] ?? $p['category_name'] ?? 'Premium Cut';
+            ?>
+                <div class="product-card">
+                    <div class="product-img-placeholder">
+                        Image Lost
+                    </div>
+                    
+                    <div class="product-details">
+                        <span class="product-category"><?= htmlspecialchars($category) ?></span>
+                        <h4 class="product-name"><?= htmlspecialchars($p['name']) ?></h4>
+                        <p class="product-desc"><?= htmlspecialchars($p['description'] ?? 'Fresh cut prepared to order.') ?></p>
+                        <div class="product-price">KES <?= number_format($price, 2) ?> <small style="font-size: 0.75rem; color: #777; text-transform:uppercase;">/ KG</small></div>
                         
-                        <!-- Multi-select checkbox -->
-                        <div class="select-checkbox-wrapper">
-                            <input type="checkbox" id="select_<?= $p['id'] ?>" name="items[<?= $p['id'] ?>][selected]" value="1">
-                            <label for="select_<?= $p['id'] ?>">Select</label>
-                        </div>
-
-                        <div>
-                            <h3 class="product-title"><?= htmlspecialchars($p['name']) ?></h3>
-                            <p class="product-desc"><?= htmlspecialchars($p['description'] ?? 'Fresh butchery cut.') ?></p>
-                            <div class="product-price">
-                                KES <?= number_format($price, 2) ?> <small style="font-size:0.8rem; color:#666;">/ kg</small>
-                            </div>
-                        </div>
-
-                        <!-- Purchase Options -->
-                        <div class="purchase-options">
-                            <!-- Toggle Mode -->
-                            <div class="mode-toggle">
-                                <label>
-                                    <input type="radio" name="items[<?= $p['id'] ?>][buy_mode]" value="weight" checked onchange="toggleBuyMode(<?= $p['id'] ?>, 'weight', <?=$price ?>)">
-                                    By Weight (KG)
-                                </label>
-                                <label>
-                                    <input type="radio" name="items[<?= $p['id'] ?>][buy_mode]" value="amount" onchange="toggleBuyMode(<?= $p['id'] ?>, 'amount', <?=$price ?>)">
-                                    By Amount (KES)
-                                </label>
-                            </div>
-
+                        <form method="POST" action="cart_process.php" class="direct-cart-form">
+                            <input type="hidden" name="product_id" value="<?= $p['id'] ?>">
+                            
                             <div class="form-row">
-                                <!-- Input Box (Swaps between KG and KES via JS) -->
-                                <div class="form-group" id="input_container_<?= $p['id'] ?>">
-                                    <label id="input_label_<?= $p['id'] ?>">Weight (KG):</label>
-                                    <input type="number" id="input_field_<?= $p['id'] ?>" name="items[<?= $p['id'] ?>][weight_kg]" step="0.1" value="1.0" min="0.1" oninput="calculatePreview(<?= $p['id'] ?>, <?=$price ?>)">
-                                </div>
-
                                 <div class="form-group">
-                                    <label>Cut Style:</label>
-                                    <select name="items[<?= $p['id'] ?>][cut_preference]">
-                                        <option value="Standard Cut">Standard Cut</option>
-                                        <option value="Steak Cut">Steak Cut</option>
-                                        <option value="Minced / Ground">Minced / Ground</option>
-                                        <option value="Boneless">Boneless</option>
-                                        <option value="Curry Cut">Curry Cut</option>
+                                    <label>Buy By</label>
+                                    <select name="buy_mode" class="form-control" onchange="toggleInput(this, <?= $p['id'] ?>)">
+                                        <option value="weight">Weight (KG)</option>
+                                        <option value="amount">Amount (KES)</option>
                                     </select>
                                 </div>
+                                <div class="form-group" id="input-container-<?= $p['id'] ?>">
+                                    <label id="label-<?= $p['id'] ?>">Weight (KG)</label>
+                                    <input type="number" name="weight_kg" class="form-control" step="0.1" min="0.1" value="1.0" id="input-val-<?= $p['id'] ?>">
+                                </div>
                             </div>
 
-                            <!-- Realtime Estimate Preview -->
-                            <div class="calc-preview" id="preview_<?= $p['id'] ?>">
-                                Total: KES <?= number_format($price, 2) ?>
+                            <div class="form-group" style="margin-bottom: 15px;">
+                                <label>Preparation</label>
+                                <select name="cut_preference" class="form-control">
+                                    <option value="Standard Cut">Standard Cut</option>
+                                    <option value="Cubed / Diced">Cubed / Diced</option>
+                                    <option value="Minced">Minced</option>
+                                    <option value="Whole / Intact">Whole / Intact</option>
+                                </select>
                             </div>
-                        </div>
 
+                            <button type="submit" class="btn-add-cart">
+                                Add to Cart
+                            </button>
+                        </form>
                     </div>
-                <?php endforeach; ?>
-            </div>
-        <?php endif; ?>
-    </form>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
 </div>
 
 <script>
-function toggleBuyMode(id, mode, pricePerKg) {
-    const container = document.getElementById('input_container_' + id);
-    const label = document.getElementById('input_label_' + id);
-    
-    // Auto check the selection checkbox when user edits inputs
-    document.getElementById('select_' + id).checked = true;
+    function toggleInput(selectElement, productId) {
+        const mode = selectElement.value;
+        const inputField = document.getElementById('input-val-' + productId);
+        const label = document.getElementById('label-' + productId);
 
-    if (mode === 'amount') {
-        label.innerText = 'Amount (KES):';
-        container.innerHTML = `
-            <label>Amount (KES):</label>
-            <input type="number" id="input_field_${id}" name="items[${id}][amount_kes]" step="50" value="500" min="50" oninput="calculatePreview(${id}, ${pricePerKg})">
-        `;
-    } else {
-        label.innerText = 'Weight (KG):';
-        container.innerHTML = `
-            <label>Weight (KG):</label>
-            <input type="number" id="input_field_${id}" name="items[${id}][weight_kg]" step="0.1" value="1.0" min="0.1" oninput="calculatePreview(${id}, ${pricePerKg})">
-        `;
+        if (mode === 'amount') {
+            inputField.name = 'amount_kes';
+            inputField.step = '10';
+            inputField.min = '50';
+            inputField.value = '500'; 
+            label.innerText = 'Amount (KES)';
+        } else {
+            inputField.name = 'weight_kg';
+            inputField.step = '0.1';
+            inputField.min = '0.1';
+            inputField.value = '1.0'; 
+            label.innerText = 'Weight (KG)';
+        }
     }
-    calculatePreview(id, pricePerKg);
-}
-
-function calculatePreview(id, pricePerKg) {
-    // Auto check the selection checkbox when user changes inputs
-    document.getElementById('select_' + id).checked = true;
-
-    const inputField = document.getElementById('input_field_' + id);
-    const preview = document.getElementById('preview_' + id);
-    const mode = document.querySelector(`input[name="items[${id}][buy_mode]"]:checked`).value;
-    const val = parseFloat(inputField.value) || 0;
-
-    if (mode === 'amount') {
-        const approxKg = (val / pricePerKg).toFixed(3);
-        preview.innerText = `Approx Weight: ${approxKg} KG`;
-    } else {
-        const totalKes = (val * pricePerKg).toFixed(2);
-        preview.innerText = `Total: KES ${Number(totalKes).toLocaleString()}`;
-    }
-}
 </script>
 
 </body>

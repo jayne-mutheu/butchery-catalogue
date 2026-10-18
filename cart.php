@@ -1,99 +1,104 @@
 <?php
 session_start();
+require_once 'db.php';
 
-// Handle individual item removal
-if (isset($_GET['action']) && $_GET['action'] === 'remove' && isset($_GET['key'])) {
-    $remove_key = $_GET['key'];
-    if (isset($_SESSION['cart'][$remove_key])) {
-        unset($_SESSION['cart'][$remove_key]);
-        $_SESSION['cart_message'] = "Item removed from your cart.";
+// Handle Item Removal
+if (isset($_GET['action']) && $_GET['action'] === 'remove' && isset($_GET['cart_id'])) {
+    $remove_id = $_GET['cart_id'];
+    if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
+        foreach ($_SESSION['cart'] as $key => $item) {
+            if (isset($item['cart_id']) && $item['cart_id'] === $remove_id) {
+                unset($_SESSION['cart'][$key]);
+                $_SESSION['cart'] = array_values($_SESSION['cart']); // Re-index array
+                $_SESSION['cart_message'] = "Item removed from cart.";
+                break;
+            }
+        }
     }
     header('Location: cart.php');
     exit;
 }
 
-// Handle emptying the entire cart
+// Handle Clear Cart
 if (isset($_GET['action']) && $_GET['action'] === 'clear') {
-    unset($_SESSION['cart']);
+    $_SESSION['cart'] = [];
     $_SESSION['cart_message'] = "Cart cleared.";
     header('Location: cart.php');
     exit;
 }
 
-$cart = $_SESSION['cart'] ?? [];
+$cart_items = $_SESSION['cart'] ?? [];
 $grand_total = 0;
+foreach ($cart_items as $item) {
+    $grand_total += (float)($item['total_price'] ?? 0);
+}
+
+$cart_count = count($cart_items);
+$is_admin = !empty($_SESSION['is_admin']) || (isset($_SESSION['role']) && $_SESSION['role'] === 'admin');
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prime Cuts Butchery - Shopping Cart</title>
+    <title>Your Cart - Prime Cuts Butchery</title>
     <style>
         * { box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            margin: 0; 
-            background-color: #f4f6f9; 
-            color: #333; 
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background-color: #f4f6f9; color: #333; }
 
-        .navbar { 
-            background-color: #8b0000; 
-            color: #fff; 
-            padding: 15px 40px; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
-        }
+        .navbar { background-color: #8b0000; color: #fff; padding: 15px 40px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
         .navbar h1 { margin: 0; font-size: 1.5rem; }
-        .navbar-links { display: flex; align-items: center; gap: 20px; }
+        .navbar-links { display: flex; align-items: center; gap: 15px; }
         .navbar-links a { color: #fff; text-decoration: none; font-weight: bold; font-size: 0.95rem; }
-        
-        .container { max-width: 1000px; margin: 30px auto; padding: 0 20px; }
-        .page-title { color: #8b0000; margin-bottom: 20px; }
-        
-        .cart-table { 
-            width: 100%; 
-            border-collapse: collapse; 
-            background: #fff; 
-            border-radius: 8px; 
-            overflow: hidden; 
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06); 
-            margin-bottom: 20px; 
-        }
-        .cart-table th, .cart-table td { padding: 14px 18px; text-align: left; border-bottom: 1px solid #eee; }
-        .cart-table th { background-color: #8b0000; color: #fff; font-weight: 600; font-size: 0.9rem; }
-        .cart-table tr:hover { background-color: #fcfcfc; }
 
+        .btn-admin-nav { 
+            background-color: #17a2b8; 
+            color: #fff !important; 
+            padding: 8px 14px; 
+            border-radius: 20px; 
+            font-size: 0.85rem !important; 
+            display: flex; 
+            align-items: center; 
+            gap: 6px; 
+        }
+
+        .cart-btn { background-color: #ffc107; color: #333 !important; padding: 8px 16px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-weight: bold; text-decoration: none; }
+        .cart-badge { background-color: #8b0000; color: #fff; border-radius: 50%; padding: 2px 7px; font-size: 0.8rem; }
+
+        .container { max-width: 1000px; margin: 30px auto; padding: 0 20px; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .page-header h2 { margin: 0; color: #8b0000; }
+
+        .table-responsive { background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow-x: auto; border: 1px solid #eee; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th, td { padding: 14px 18px; border-bottom: 1px solid #eee; }
+        th { background-color: #f8f9fa; color: #555; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { font-size: 0.95rem; }
+
+        .item-title { font-weight: bold; color: #222; }
+        .item-cut { font-size: 0.8rem; color: #28a745; font-weight: bold; display: inline-block; background: #e8f5e9; padding: 2px 8px; border-radius: 12px; margin-top: 4px; }
+        
         .btn-remove { color: #dc3545; text-decoration: none; font-weight: bold; font-size: 0.85rem; }
         .btn-remove:hover { text-decoration: underline; }
 
-        .cart-summary { 
-            background: #fff; 
-            padding: 20px; 
-            border-radius: 8px; 
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06); 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            flex-wrap: wrap; 
-            gap: 15px; 
-        }
-        .grand-total { font-size: 1.3rem; font-weight: bold; color: #8b0000; }
+        .cart-summary { background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #eee; padding: 20px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+        .total-box { font-size: 1.25rem; font-weight: bold; color: #222; }
+        .total-amount { color: #8b0000; font-size: 1.5rem; }
 
-        .action-btns { display: flex; gap: 10px; align-items: center; }
-        .btn { text-decoration: none; padding: 10px 18px; border-radius: 5px; font-weight: bold; font-size: 0.95rem; display: inline-block; }
-        .btn-primary { background-color: #28a745; color: #fff; }
-        .btn-primary:hover { background-color: #218838; }
+        .action-buttons { display: flex; gap: 12px; }
+        .btn { padding: 10px 20px; border-radius: 6px; font-weight: bold; text-decoration: none; font-size: 0.95rem; display: inline-block; text-align: center; }
         .btn-secondary { background-color: #6c757d; color: #fff; }
         .btn-secondary:hover { background-color: #5a6268; }
+        .btn-checkout { background-color: #28a745; color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.15); }
+        .btn-checkout:hover { background-color: #218838; }
+        .btn-clear { background-color: #fff; color: #dc3545; border: 1px solid #dc3545; }
+        .btn-clear:hover { background-color: #f8d7da; }
 
         .alert { padding: 12px 15px; border-radius: 5px; margin-bottom: 20px; }
         .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .alert-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
-        .badge-mode { background: #e9ecef; color: #495057; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; text-transform: uppercase; font-weight: bold; margin-left: 6px; }
+
+        .empty-cart { text-align: center; padding: 50px 20px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #eee; }
+        .empty-cart h3 { color: #666; margin-bottom: 10px; }
     </style>
 </head>
 <body>
@@ -101,15 +106,31 @@ $grand_total = 0;
 <nav class="navbar">
     <h1>🥩 Prime Cuts Butchery</h1>
     <div class="navbar-links">
-        <a href="shop.php">🏪 Continue Shopping</a>
-        <?php if (isset($_SESSION['user_id'])): ?>
-            <a href="logout.php">🚪 Logout</a>
+        <a href="shop.php">Storefront</a>
+
+        <?php if ($is_admin): ?>
+            <a href="admin.php" class="btn-admin-nav">⚙️ Admin Dashboard</a>
+        <?php endif; ?>
+
+        <a href="cart.php" class="cart-btn">
+            🛒 Cart <span class="cart-badge"><?= $cart_count ?></span>
+        </a>
+
+        <?php if (isset($_SESSION['user_id']) || $is_admin): ?>
+            <a href="logout.php">Logout</a>
+        <?php else: ?>
+            <a href="login.php">Login</a>
         <?php endif; ?>
     </div>
 </nav>
 
 <div class="container">
-    <h2 class="page-title">🛒 Your Selected Meat Products</h2>
+    <div class="page-header">
+        <h2>Shopping Cart</h2>
+        <?php if (!empty($cart_items)): ?>
+            <a href="cart.php?action=clear" class="btn btn-clear" onclick="return confirm('Clear all items from your cart?');">Clear Cart</a>
+        <?php endif; ?>
+    </div>
 
     <?php if (isset($_SESSION['cart_message'])): ?>
         <div class="alert alert-success">
@@ -118,65 +139,58 @@ $grand_total = 0;
         </div>
     <?php endif; ?>
 
-    <?php if (empty($cart)): ?>
-        <div class="alert alert-info" style="text-align: center; padding: 40px 20px;">
+    <?php if (empty($cart_items)): ?>
+        <div class="empty-cart">
             <h3>Your cart is currently empty.</h3>
-            <p>Browse our storefront to choose meat cuts by weight or budget.</p>
-            <a href="shop.php" class="btn btn-primary" style="margin-top: 10px;">Go to Storefront</a>
+            <p style="color:#888; margin-bottom:20px;">Browse our fresh meat selection to add items to your cart.</p>
+            <a href="shop.php" class="btn btn-secondary">Go to Storefront</a>
         </div>
     <?php else: ?>
-        <table class="cart-table">
-            <thead>
-                <tr>
-                    <th>Meat Item</th>
-                    <th>Cut Preference</th>
-                    <th>Price / KG</th>
-                    <th>Calculated Weight</th>
-                    <th>Subtotal</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($cart as $key => $item): ?>
-                    <?php 
-                        $name = $item['name'] ?? 'Meat Product';
-                        $cut = $item['cut_preference'] ?? 'Standard Cut';
-                        $price_per_kg = (float)($item['price_per_kg'] ?? $item['price'] ?? 0);
-                        $weight_kg = (float)($item['weight_kg'] ?? $item['weight'] ?? 0);
-                        $buy_mode = $item['buy_mode'] ?? 'weight';
-                        $subtotal = (float)($item['total_price'] ?? ($weight_kg * $price_per_kg));
-                        
-                        $grand_total += $subtotal;
-                    ?>
+        <div class="table-responsive">
+            <table>
+                <thead>
                     <tr>
-                        <td>
-                            <strong><?= htmlspecialchars($name) ?></strong>
-                            <?php if ($buy_mode === 'amount'): ?>
-                                <span class="badge-mode">By Budget</span>
-                            <?php else: ?>
-                                <span class="badge-mode">By Weight</span>
-                            <?php endif; ?>
-                        </td>
-                        <td><?= htmlspecialchars($cut) ?></td>
-                        <td>KES <?= number_format($price_per_kg, 2) ?></td>
-                        <td><?= number_format($weight_kg, 3) ?> kg</td>
-                        <td><strong>KES <?= number_format($subtotal, 2) ?></strong></td>
-                        <td>
-                            <a href="cart.php?action=remove&key=<?= urlencode($key) ?>" class="btn-remove" onclick="return confirm('Remove this item from your cart?')">Remove</a>
-                        </td>
+                        <th>Meat Item</th>
+                        <th>Cut Style</th>
+                        <th>Price / KG</th>
+                        <th>Weight / Mode</th>
+                        <th>Total (KES)</th>
+                        <th>Action</th>
                     </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    <?php foreach ($cart_items as $item): ?>
+                        <tr>
+                            <td>
+                                <div class="item-title"><?= htmlspecialchars($item['name']) ?></div>
+                            </td>
+                            <td>
+                                <span class="item-cut"><?= htmlspecialchars($item['cut_preference'] ?? 'Standard Cut') ?></span>
+                            </td>
+                            <td>KES <?= number_format((float)($item['price_per_kg'] ?? 0), 2) ?></td>
+                            <td>
+                                <strong><?= number_format((float)($item['weight_kg'] ?? 0), 3) ?> KG</strong>
+                                <small style="color:#777; display:block;">
+                                    (<?= ($item['buy_mode'] ?? 'weight') === 'amount' ? 'By KES Amount' : 'By Weight' ?>)
+                                </small>
+                            </td>
+                            <td><strong>KES <?= number_format((float)($item['total_price'] ?? 0), 2) ?></strong></td>
+                            <td>
+                                <a href="cart.php?action=remove&cart_id=<?= urlencode($item['cart_id']) ?>" class="btn-remove" onclick="return confirm('Remove this item?');">Remove</a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
 
         <div class="cart-summary">
-            <div>
-                <a href="cart.php?action=clear" class="btn btn-secondary" onclick="return confirm('Clear all items from your cart?')">Clear Cart</a>
-                <a href="shop.php" class="btn btn-secondary">Continue Shopping</a>
+            <div class="total-box">
+                Grand Total: <span class="total-amount">KES <?= number_format($grand_total, 2) ?></span>
             </div>
-            <div class="action-btns">
-                <span class="grand-total">Grand Total: KES <?= number_format($grand_total, 2) ?></span>
-                <a href="checkout.php" class="btn btn-primary">Proceed to Checkout 💳</a>
+            <div class="action-buttons">
+                <a href="shop.php" class="btn btn-secondary">← Continue Shopping</a>
+                <a href="checkout.php" class="btn btn-checkout">Proceed to Checkout →</a>
             </div>
         </div>
     <?php endif; ?>
